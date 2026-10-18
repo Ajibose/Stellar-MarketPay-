@@ -52,7 +52,10 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      # Must match backend/Dockerfile's HEALTHCHECK and the route mount in
+      # backend/src/server.js (app.use("/health", healthRoutes)) — /api/health
+      # falls through to the 404 handler. See issue #1761.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health | grep -q '\"status\":\"healthy\"' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

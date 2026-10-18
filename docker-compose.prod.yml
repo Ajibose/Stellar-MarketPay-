@@ -97,7 +97,9 @@ services:
     secrets:
       - database_url
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      # Probes /health — the path server.js mounts the health router at.
+      # Kept identical to backend/Dockerfile's HEALTHCHECK (issue #1761).
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health | grep -q '\"status\":\"healthy\"' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -150,7 +152,9 @@ services:
     secrets:
       - database_url
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      # Probes /health — the path server.js mounts the health router at.
+      # Kept identical to backend/Dockerfile's HEALTHCHECK (issue #1761).
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health | grep -q '\"status\":\"healthy\"' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
