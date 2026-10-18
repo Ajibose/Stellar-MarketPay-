@@ -14,6 +14,10 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
 const { createRateLimiter } = require("../middleware/rateLimiter");
+const {
+  REQUEST_SIZE_BUDGETS,
+  createJsonBodyLimitMiddleware,
+} = require("../middleware/requestSizeLimit");
 
 const createSessionRateLimiter = createRateLimiter(5, 1);
 const renewRateLimiter = createRateLimiter(5, 1);
@@ -21,7 +25,13 @@ const upsertRateLimiter = createRateLimiter(60, 1);
 
 const MAX_CONTENT_LENGTH = 500_000;
 
-router.use(express.json({ limit: "2mb" }));
+// Scope sessions carry up to MAX_CONTENT_LENGTH (500,000) characters and
+// migration V67 stores up to 512 KiB of content, so /api/scope gets a raised
+// JSON budget (see backend/docs/request-size-budgets.md). server.js registers
+// the same budget app-wide BEFORE its default parser; this router-level
+// registration keeps the router correct when it is mounted standalone (issue
+// #1785).
+router.use(createJsonBodyLimitMiddleware(REQUEST_SIZE_BUDGETS["/api/scope"]));
 
 /**
  * Upsert a scope drafting session in PostgreSQL.

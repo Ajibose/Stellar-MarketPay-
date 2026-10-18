@@ -19,6 +19,13 @@ const { WebSocketServer } = require("ws");
 const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
  
+const {
+  DEFAULT_JSON_LIMIT,
+  REQUEST_SIZE_BUDGETS,
+  createJsonBodyLimitMiddleware,
+} = require("./middleware/requestSizeLimit");
+const { ErrorCodes } = require("./utils/errors");
+ 
 const jobRoutes = require("./routes/jobs");
 const applicationRoutes = require("./routes/applications");
 const profileRoutes     = require("./routes/profiles");
@@ -197,7 +204,16 @@ app.locals.broadcastRealtime = broadcastRealtime;
 // Middleware
 app.use(helmet());
 app.use(morgan("dev"));
-app.use(express.json({ limit: "20kb" }));
+ 
+// JSON body size budgets (issue #1785). Raised per-route budgets are
+// registered BEFORE the default parser: body-parser only parses in the first
+// middleware that consumes the request stream, so a budget mounted after the
+// default parser would never apply. Budgets and their audit evidence are
+// documented in backend/docs/request-size-budgets.md.
+for (const [routePath, budget] of Object.entries(REQUEST_SIZE_BUDGETS)) {
+  app.use(routePath, createJsonBodyLimitMiddleware(budget));
+}
+app.use(createJsonBodyLimitMiddleware(DEFAULT_JSON_LIMIT));
  
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(o => o.trim());
 app.use(cors({
@@ -283,9 +299,23 @@ app.use((req, res) => {
 app.use((err, req, res, _next) => {
   console.error("[Error]", err.message);
  
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-  });
+  const status = err.status || err.statusCode || 500;
+  const body = { error: err.message || "Internal server error" };
+ 
+  // Oversized-body failures always carry a machine-readable code and the
+  // violated limit so clients can diagnose a 413 instead of receiving a
+  // bare response (issue #1785). All other error responses are unchanged.
+  if (status === 413) {
+    body.code =
+      typeof err.code === "string" && /^[A-Z][A-Z0-9_]+$/.test(err.code)
+        ? err.code
+        : ErrorCodes.FILE_TOO_LARGE;
+    if (err.details !== undefined) {
+      body.details = err.details;
+    }
+  }
+ 
+  res.status(status).json(body);
 });
  
 const wsServer = new WebSocketServer({ noServer: true });
